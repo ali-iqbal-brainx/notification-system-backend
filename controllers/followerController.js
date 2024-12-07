@@ -1,4 +1,4 @@
-
+const { getIO } = require('../configs/socket');
 const { default: mongoose } = require('mongoose');
 const followServices = require('../services/followServices');
 const notificationServices = require('../services/notificationServices');
@@ -25,6 +25,20 @@ const follow = async (request, response) => {
             relatedModel: "follow",
             userId: id
         });
+
+        // Emit socket event
+        const io = getIO();
+        const enrichedNotification = {
+            ...notification.toObject(),
+            relatedData: {
+                ...follow.toObject(),
+                followerDetail: { name: user.name, _id: user._id },
+                status: "Pending"
+            },
+            type: "Action"
+        };
+        
+        io.to(`user_${id}`).emit('notification', enrichedNotification);
 
         return response
             .status(200)
@@ -123,12 +137,26 @@ const addressRequest = async (request, response) => {
                 }
             );
 
-            await notificationServices.addNotification({
+            const notification = await notificationServices.addNotification({
                 type: constants.NOTIFICATION_TYPE.message,
                 relatedRequestId: updatedObj?._id,
                 relatedModel: "follow",
                 userId: follow?.followerId
             });
+
+            // Emit socket event for accepted request
+            const io = getIO();
+            const enrichedNotification = {
+                ...notification.toObject(),
+                relatedData: {
+                    ...updatedObj.toObject(),
+                    followingDetail: { name: user.name, _id: user._id },
+                    status: "Approved"
+                },
+                type: "Message"
+            };
+
+            io.to(`user_${follow.followerId}`).emit('notification', enrichedNotification);
         } else {
             await Promise.all([
                 notificationServices.deleteNotifications({
@@ -139,6 +167,17 @@ const addressRequest = async (request, response) => {
                     _id: follow?._id
                 })
             ]);
+
+            // Emit socket event for rejected request
+            const io = getIO();
+            io.to(`user_${follow.followerId}`).emit('notification', {
+                type: "Action",
+                relatedModel: "follow",
+                relatedData: {
+                    followingDetail: { name: user.name, _id: user._id },
+                    status: "Rejected"
+                }
+            });
         }
 
         return response

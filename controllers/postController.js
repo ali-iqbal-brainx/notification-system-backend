@@ -4,6 +4,7 @@ const followServices = require('../services/followServices');
 const notificationServices = require('../services/notificationServices');
 const { default: mongoose } = require('mongoose');
 const { constants } = require('../shared/constants');
+const { getIO } = require('../configs/socket');
 
 const addPost = async (request, response) => {
     try {
@@ -118,12 +119,28 @@ const likePost = async (request, response) => {
         }
 
         if (!userOwnPost) {
-            await notificationServices.addNotification({
+            const notification = await notificationServices.addNotification({
                 type: constants.NOTIFICATION_TYPE.message,
                 relatedRequestId: like?._id,
                 relatedModel: "like",
                 userId: post?.userId
             });
+
+            const io = getIO();
+            const enrichedNotification = {
+                ...notification.toObject(),
+                relatedData: {
+                    ...like.toObject(),
+                    userDetail: { 
+                        name: user.name, 
+                        _id: user._id 
+                    },
+                    postId: postId
+                },
+                type: "Message"
+            };
+
+            io.to(`user_${post.userId}`).emit('notification', enrichedNotification);
         }
 
         return response
